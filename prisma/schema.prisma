@@ -1,0 +1,840 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum StatusEndereco {
+  DISPONIVEL
+  BLOQUEADO
+  MANUTENCAO
+}
+
+enum TipoEndereco {
+  RECEBIMENTO
+  ARMAZENAGEM
+  PICKING
+  PACKING
+  EXPEDICAO
+  DEVOLUCAO
+  QUARENTENA
+}
+
+enum TipoRastreamento {
+  NENHUM
+  LOTE
+  SERIE
+  LOTE_E_SERIE
+}
+
+enum StatusEstoque {
+  DISPONIVEL
+  BLOQUEADO
+  QUARENTENA
+  AVARIADO
+  VENCIDO
+}
+
+enum TipoMovimento {
+  RECEBIMENTO
+  ARMAZENAGEM
+  TRANSFERENCIA_ENTRADA
+  TRANSFERENCIA_SAIDA
+  AJUSTE_ENTRADA
+  AJUSTE_SAIDA
+  RESERVA
+  LIBERACAO_RESERVA
+  SEPARACAO
+  EXPEDICAO
+  DEVOLUCAO
+  BLOQUEIO
+  DESBLOQUEIO
+  ESTORNO
+}
+
+enum StatusOperacao {
+  RASCUNHO
+  PENDENTE
+  EM_ANDAMENTO
+  AGUARDANDO_APROVACAO
+  CONCLUIDO
+  CANCELADO
+  REJEITADO
+}
+
+enum StatusPedido {
+  RASCUNHO
+  RECEBIDO
+  LIBERADO
+  EM_SEPARACAO
+  SEPARADO
+  EM_PACKING
+  PRONTO_PARA_EXPEDICAO
+  PARCIALMENTE_EXPEDIDO
+  EXPEDIDO
+  CANCELADO
+}
+
+enum StatusReserva {
+  ATIVA
+  CONSUMIDA
+  LIBERADA
+  CANCELADA
+}
+
+enum StatusInventario {
+  RASCUNHO
+  ABERTO
+  EM_CONTAGEM
+  EM_APURACAO
+  AGUARDANDO_APROVACAO
+  CONCLUIDO
+  CANCELADO
+}
+
+enum PapelUsuario {
+  ADMINISTRADOR
+  SUPERVISOR
+  RECEBIMENTO
+  ESTOQUISTA
+  SEPARADOR
+  CONFERENTE
+  EXPEDICAO
+  AUDITOR
+  CONSULTA
+}
+
+enum TipoParceiro {
+  CLIENTE
+  FORNECEDOR
+  AMBOS
+}
+
+model Empresa {
+  id         String   @id @default(uuid()) @db.Uuid
+  codigo     String   @unique @db.VarChar(30)
+  razaoSocial String  @db.VarChar(180)
+  nomeFantasia String? @db.VarChar(180)
+  cnpj       String?  @db.VarChar(14)
+  ativo      Boolean  @default(true)
+  criadoEm   DateTime @default(now()) @db.Timestamptz(3)
+  atualizadoEm DateTime @updatedAt @db.Timestamptz(3)
+
+  depositos  Deposito[]
+  usuarios   Usuario[]
+  produtos   Produto[]
+  parceiros  Parceiro[]
+  categorias Categoria[]
+}
+
+model Deposito {
+  id         String   @id @default(uuid()) @db.Uuid
+  empresaId  String   @db.Uuid
+  codigo     String   @db.VarChar(30)
+  nome       String   @db.VarChar(120)
+  fusoHorario String  @default("America/Sao_Paulo")
+  ativo      Boolean  @default(true)
+  criadoEm   DateTime @default(now()) @db.Timestamptz(3)
+
+  empresa    Empresa @relation(fields: [empresaId], references: [id])
+  enderecos  Endereco[]
+  saldos     SaldoEstoque[]
+  movimentos MovimentoEstoque[]
+  recebimentos Recebimento[]
+  pedidos    Pedido[]
+  ondas      OndaSeparacao[]
+  inventarios Inventario[]
+
+  @@unique([empresaId, codigo])
+  @@index([empresaId, ativo])
+}
+
+model Usuario {
+  id            String   @id @default(uuid()) @db.Uuid
+  empresaId     String   @db.Uuid
+  nome          String   @db.VarChar(120)
+  email         String   @db.VarChar(180)
+  senhaHash     String   @db.VarChar(255)
+  ativo         Boolean  @default(true)
+  ultimoLoginEm DateTime? @db.Timestamptz(3)
+  criadoEm      DateTime @default(now()) @db.Timestamptz(3)
+
+  empresa       Empresa @relation(fields: [empresaId], references: [id])
+  papeis        UsuarioPapel[]
+  auditorias    Auditoria[]
+  movimentos    MovimentoEstoque[] @relation("UsuarioMovimento")
+
+  @@unique([empresaId, email])
+  @@index([empresaId, ativo])
+}
+
+model UsuarioPapel {
+  id        String @id @default(uuid()) @db.Uuid
+  usuarioId String @db.Uuid
+  papel     PapelUsuario
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, papel])
+}
+
+model Categoria {
+  id        String  @id @default(uuid()) @db.Uuid
+  empresaId String  @db.Uuid
+  codigo    String  @db.VarChar(40)
+  nome      String  @db.VarChar(120)
+  ativo     Boolean @default(true)
+
+  empresa  Empresa @relation(fields: [empresaId], references: [id])
+  produtos Produto[]
+
+  @@unique([empresaId, codigo])
+}
+
+model UnidadeMedida {
+  id             String  @id @default(uuid()) @db.Uuid
+  codigo         String  @unique @db.VarChar(20)
+  nome           String  @db.VarChar(80)
+  casasDecimais  Int     @default(0)
+  ativo          Boolean @default(true)
+
+  produtos Produto[]
+}
+
+model Produto {
+  id              String   @id @default(uuid()) @db.Uuid
+  empresaId       String   @db.Uuid
+  categoriaId     String?  @db.Uuid
+  unidadeId       String   @db.Uuid
+  sku             String   @db.VarChar(80)
+  nome            String   @db.VarChar(180)
+  descricao       String?
+  codigoBarras    String?  @db.VarChar(100)
+  rastreamento    TipoRastreamento @default(NENHUM)
+  controlaValidade Boolean @default(false)
+  estoqueMinimo   Decimal? @db.Decimal(18, 4)
+  estoqueMaximo   Decimal? @db.Decimal(18, 4)
+  pesoKg          Decimal? @db.Decimal(18, 4)
+  ativo           Boolean  @default(true)
+  criadoEm        DateTime @default(now()) @db.Timestamptz(3)
+  atualizadoEm    DateTime @updatedAt @db.Timestamptz(3)
+
+  empresa     Empresa @relation(fields: [empresaId], references: [id])
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id])
+  unidade     UnidadeMedida @relation(fields: [unidadeId], references: [id])
+  identificadores IdentificadorProduto[]
+  lotes       Lote[]
+  seriais     NumeroSerie[]
+  saldos      SaldoEstoque[]
+  movimentos  MovimentoEstoque[]
+  itensRecebimento ItemRecebimento[]
+  itensPedido ItemPedido[]
+
+  @@unique([empresaId, sku])
+  @@index([empresaId, nome])
+  @@index([codigoBarras])
+  @@index([empresaId, ativo])
+}
+
+model IdentificadorProduto {
+  id        String @id @default(uuid()) @db.Uuid
+  produtoId String @db.Uuid
+  tipo      String @db.VarChar(30)
+  codigo    String @db.VarChar(100)
+
+  produto Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  @@unique([tipo, codigo])
+  @@index([produtoId])
+}
+
+model Parceiro {
+  id          String @id @default(uuid()) @db.Uuid
+  empresaId   String @db.Uuid
+  codigo      String @db.VarChar(40)
+  tipo        TipoParceiro
+  razaoSocial String @db.VarChar(180)
+  nomeFantasia String?
+  cnpj        String? @db.VarChar(14)
+  email       String?
+  telefone    String?
+  ativo       Boolean @default(true)
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+  recebimentos Recebimento[]
+  pedidos Pedido[]
+
+  @@unique([empresaId, codigo])
+  @@index([empresaId, cnpj])
+  @@index([empresaId, razaoSocial])
+}
+
+model Endereco {
+  id            String @id @default(uuid()) @db.Uuid
+  depositoId    String @db.Uuid
+  enderecoPaiId String? @db.Uuid
+  codigo        String @db.VarChar(60)
+  tipo          TipoEndereco
+  status        StatusEndereco @default(DISPONIVEL)
+  corredor      String?
+  modulo        String?
+  nivel         String?
+  posicao       String?
+  capacidadePesoKg Decimal? @db.Decimal(18, 4)
+  capacidadeVolumeM3 Decimal? @db.Decimal(18, 6)
+  prioridadePicking Int @default(100)
+  permiteSkuMisto Boolean @default(false)
+  permiteLoteMisto Boolean @default(false)
+  ativo         Boolean @default(true)
+
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  enderecoPai Endereco? @relation("HierarquiaEndereco", fields: [enderecoPaiId], references: [id])
+  enderecosFilhos Endereco[] @relation("HierarquiaEndereco")
+  saldos SaldoEstoque[]
+  origemMovimentos MovimentoEstoque[] @relation("EnderecoOrigem")
+  destinoMovimentos MovimentoEstoque[] @relation("EnderecoDestino")
+  tarefasSeparacao TarefaSeparacao[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, tipo, status, ativo])
+}
+
+model NotaFiscalEntrada {
+  id          String   @id @default(uuid()) @db.Uuid
+  empresaId   String   @db.Uuid
+  chaveAcesso String?  @unique @db.VarChar(44)
+  numero      String   @db.VarChar(30)
+  serie       String?  @db.VarChar(10)
+  cnpjEmitente String? @db.VarChar(14)
+  dataEmissao DateTime? @db.Timestamptz(3)
+  xml         String?
+  xmlStorageKey String?
+  status      StatusOperacao @default(RASCUNHO)
+  valorTotal  Decimal? @db.Decimal(18, 2)
+  importadaEm DateTime? @db.Timestamptz(3)
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+
+  itens       ItemNotaFiscal[]
+  recebimentos Recebimento[]
+
+  @@unique([empresaId, numero, serie, cnpjEmitente])
+  @@index([empresaId, status, dataEmissao])
+}
+
+model ItemNotaFiscal {
+  id             String @id @default(uuid()) @db.Uuid
+  notaFiscalId   String @db.Uuid
+  numeroItem     Int
+  produtoId      String? @db.Uuid
+  codigoFornecedor String?
+  descricao      String
+  unidade        String?
+  quantidade     Decimal @db.Decimal(18, 4)
+  valorUnitario  Decimal? @db.Decimal(18, 6)
+  valorTotal     Decimal? @db.Decimal(18, 2)
+
+  notaFiscal NotaFiscalEntrada @relation(fields: [notaFiscalId], references: [id], onDelete: Cascade)
+
+  @@unique([notaFiscalId, numeroItem])
+  @@index([produtoId])
+}
+
+model Recebimento {
+  id          String @id @default(uuid()) @db.Uuid
+  depositoId  String @db.Uuid
+  parceiroId  String @db.Uuid
+  notaFiscalId String? @db.Uuid
+  codigo      String @db.VarChar(40)
+  status      StatusOperacao @default(PENDENTE)
+  agendadoEm  DateTime? @db.Timestamptz(3)
+  iniciadoEm  DateTime? @db.Timestamptz(3)
+  concluidoEm DateTime? @db.Timestamptz(3)
+  observacao  String?
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  parceiro Parceiro @relation(fields: [parceiroId], references: [id])
+  notaFiscal NotaFiscalEntrada? @relation(fields: [notaFiscalId], references: [id])
+  itens ItemRecebimento[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, status, criadoEm])
+}
+
+model ItemRecebimento {
+  id               String @id @default(uuid()) @db.Uuid
+  recebimentoId    String @db.Uuid
+  produtoId        String @db.Uuid
+  itemNotaFiscalId String? @db.Uuid
+  quantidadeEsperada Decimal @default(0) @db.Decimal(18, 4)
+  quantidadeContada Decimal @default(0) @db.Decimal(18, 4)
+  quantidadeAceita Decimal @default(0) @db.Decimal(18, 4)
+  quantidadeRejeitada Decimal @default(0) @db.Decimal(18, 4)
+  observacao       String?
+
+  recebimento Recebimento @relation(fields: [recebimentoId], references: [id], onDelete: Cascade)
+  produto Produto @relation(fields: [produtoId], references: [id])
+  lotes RecebimentoLote[]
+
+  @@index([recebimentoId, produtoId])
+}
+
+model RecebimentoLote {
+  id              String @id @default(uuid()) @db.Uuid
+  itemRecebimentoId String @db.Uuid
+  codigoLote      String?
+  numeroSerie     String?
+  validade        DateTime? @db.Timestamptz(3)
+  quantidade      Decimal @db.Decimal(18, 4)
+
+  itemRecebimento ItemRecebimento @relation(fields: [itemRecebimentoId], references: [id], onDelete: Cascade)
+
+  @@index([itemRecebimentoId])
+}
+
+model TarefaArmazenagem {
+  id             String @id @default(uuid()) @db.Uuid
+  recebimentoId  String @db.Uuid
+  produtoId      String @db.Uuid
+  enderecoId     String? @db.Uuid
+  loteId         String? @db.Uuid
+  quantidade     Decimal @db.Decimal(18, 4)
+  quantidadeConfirmada Decimal @default(0) @db.Decimal(18, 4)
+  status         StatusOperacao @default(PENDENTE)
+  operadorId     String? @db.Uuid
+  iniciadoEm    DateTime? @db.Timestamptz(3)
+  concluidoEm   DateTime? @db.Timestamptz(3)
+
+  @@index([recebimentoId, status])
+  @@index([status, operadorId])
+}
+
+model Lote {
+  id             String @id @default(uuid()) @db.Uuid
+  produtoId      String @db.Uuid
+  codigo         String @db.VarChar(100)
+  fabricadoEm    DateTime? @db.Timestamptz(3)
+  validade       DateTime? @db.Timestamptz(3)
+  loteFornecedor String?
+  status         StatusEstoque @default(DISPONIVEL)
+
+  produto Produto @relation(fields: [produtoId], references: [id])
+  saldos SaldoEstoque[]
+  movimentos MovimentoEstoque[]
+  seriais NumeroSerie[]
+
+  @@unique([produtoId, codigo])
+  @@index([produtoId, validade, status])
+}
+
+model NumeroSerie {
+  id          String @id @default(uuid()) @db.Uuid
+  produtoId   String @db.Uuid
+  loteId      String? @db.Uuid
+  numero      String @db.VarChar(120)
+  status      StatusEstoque @default(DISPONIVEL)
+  enderecoAtualId String? @db.Uuid
+
+  produto Produto @relation(fields: [produtoId], references: [id])
+  lote Lote? @relation(fields: [loteId], references: [id])
+
+  @@unique([produtoId, numero])
+  @@index([numero, status])
+}
+
+model SaldoEstoque {
+  id          String @id @default(uuid()) @db.Uuid
+  depositoId  String @db.Uuid
+  enderecoId  String @db.Uuid
+  produtoId   String @db.Uuid
+  loteId      String? @db.Uuid
+  status      StatusEstoque @default(DISPONIVEL)
+  quantidade  Decimal @default(0) @db.Decimal(18, 4)
+  reservada   Decimal @default(0) @db.Decimal(18, 4)
+  atualizadoEm DateTime @updatedAt @db.Timestamptz(3)
+
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  endereco Endereco @relation(fields: [enderecoId], references: [id])
+  produto Produto @relation(fields: [produtoId], references: [id])
+  lote Lote? @relation(fields: [loteId], references: [id])
+
+  @@unique([depositoId, enderecoId, produtoId, loteId, status])
+  @@index([depositoId, produtoId, status])
+  @@index([enderecoId, produtoId])
+  @@index([loteId, status])
+}
+
+model MovimentoEstoque {
+  id            String @id @default(uuid()) @db.Uuid
+  depositoId    String @db.Uuid
+  produtoId     String @db.Uuid
+  loteId        String? @db.Uuid
+  enderecoOrigemId String? @db.Uuid
+  enderecoDestinoId String? @db.Uuid
+  tipo          TipoMovimento
+  statusEstoque StatusEstoque @default(DISPONIVEL)
+  quantidade    Decimal @db.Decimal(18, 4)
+  referenciaTipo String? @db.VarChar(50)
+  referenciaId  String? @db.Uuid
+  referenciaCodigo String? @db.VarChar(80)
+  chaveIdempotencia String? @unique @db.VarChar(100)
+  motivo        String?
+  metadados     Json?
+  usuarioId     String? @db.Uuid
+  ocorridoEm    DateTime @default(now()) @db.Timestamptz(3)
+
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  produto Produto @relation(fields: [produtoId], references: [id])
+  lote Lote? @relation(fields: [loteId], references: [id])
+  enderecoOrigem Endereco? @relation("EnderecoOrigem", fields: [enderecoOrigemId], references: [id])
+  enderecoDestino Endereco? @relation("EnderecoDestino", fields: [enderecoDestinoId], references: [id])
+  usuario Usuario? @relation("UsuarioMovimento", fields: [usuarioId], references: [id])
+
+  @@index([depositoId, ocorridoEm])
+  @@index([produtoId, ocorridoEm])
+  @@index([loteId, ocorridoEm])
+  @@index([referenciaTipo, referenciaId])
+  @@index([enderecoOrigemId, ocorridoEm])
+  @@index([enderecoDestinoId, ocorridoEm])
+}
+
+model AjusteEstoque {
+  id          String @id @default(uuid()) @db.Uuid
+  depositoId  String @db.Uuid
+  codigo      String @db.VarChar(40)
+  status      StatusOperacao @default(RASCUNHO)
+  motivo      String
+  criadoPorId String @db.Uuid
+  aprovadoPorId String? @db.Uuid
+  aprovadoEm  DateTime? @db.Timestamptz(3)
+  executadoEm DateTime? @db.Timestamptz(3)
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+  itens       ItemAjusteEstoque[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, status, criadoEm])
+}
+
+model ItemAjusteEstoque {
+  id               String @id @default(uuid()) @db.Uuid
+  ajusteId         String @db.Uuid
+  produtoId        String @db.Uuid
+  enderecoId       String @db.Uuid
+  loteId           String? @db.Uuid
+  quantidadeSistema Decimal @db.Decimal(18, 4)
+  quantidadeContada Decimal @db.Decimal(18, 4)
+  diferenca        Decimal @db.Decimal(18, 4)
+
+  ajuste AjusteEstoque @relation(fields: [ajusteId], references: [id], onDelete: Cascade)
+
+  @@index([ajusteId, produtoId])
+}
+
+model RegraDePara {
+  id          String @id @default(uuid()) @db.Uuid
+  empresaId   String @db.Uuid
+  tipo        String @db.VarChar(30)
+  codigoOrigem String @db.VarChar(100)
+  codigoDestino String @db.VarChar(100)
+  ativo       Boolean @default(true)
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([empresaId, tipo, codigoOrigem, codigoDestino])
+  @@index([empresaId, tipo, ativo])
+}
+model Pedido {
+  id           String @id @default(uuid()) @db.Uuid
+  depositoId   String @db.Uuid
+  clienteId    String @db.Uuid
+  codigo       String @db.VarChar(50)
+  codigoExterno String? @db.VarChar(80)
+  status       StatusPedido @default(RASCUNHO)
+  prioridade   Int @default(100)
+  expedirAte   DateTime? @db.Timestamptz(3)
+  referenciaCliente String?
+  enderecoEntrega Json?
+  observacao   String?
+  criadoEm     DateTime @default(now()) @db.Timestamptz(3)
+  atualizadoEm DateTime @updatedAt @db.Timestamptz(3)
+
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  cliente Parceiro @relation(fields: [clienteId], references: [id])
+  itens ItemPedido[]
+  reservas ReservaEstoque[]
+  ondaPedidos OndaPedido[]
+  expedicoes Expedicao[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, status, prioridade, expedirAte])
+  @@index([clienteId, criadoEm])
+}
+
+model ItemPedido {
+  id           String @id @default(uuid()) @db.Uuid
+  pedidoId     String @db.Uuid
+  numeroItem   Int
+  produtoId    String @db.Uuid
+  quantidadeSolicitada Decimal @db.Decimal(18, 4)
+  quantidadeReservada Decimal @default(0) @db.Decimal(18, 4)
+  quantidadeSeparada Decimal @default(0) @db.Decimal(18, 4)
+  quantidadeExpedida Decimal @default(0) @db.Decimal(18, 4)
+  valorUnitario Decimal? @db.Decimal(18, 6)
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produto Produto @relation(fields: [produtoId], references: [id])
+  reservas ReservaEstoque[]
+  tarefas TarefaSeparacao[]
+
+  @@unique([pedidoId, numeroItem])
+  @@index([produtoId])
+}
+
+model ReservaEstoque {
+  id          String @id @default(uuid()) @db.Uuid
+  pedidoId    String @db.Uuid
+  itemPedidoId String @db.Uuid
+  saldoId     String @db.Uuid
+  quantidade  Decimal @db.Decimal(18, 4)
+  status      StatusReserva @default(ATIVA)
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+  liberadoEm  DateTime? @db.Timestamptz(3)
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+  itemPedido ItemPedido @relation(fields: [itemPedidoId], references: [id])
+
+  @@index([pedidoId, status])
+  @@index([saldoId, status])
+}
+
+model OndaSeparacao {
+  id          String @id @default(uuid()) @db.Uuid
+  depositoId  String @db.Uuid
+  codigo      String @db.VarChar(40)
+  estrategia  String @default("FEFO") @db.VarChar(20)
+  status      StatusOperacao @default(RASCUNHO)
+  liberadaEm  DateTime? @db.Timestamptz(3)
+  concluidaEm DateTime? @db.Timestamptz(3)
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  pedidos OndaPedido[]
+  tarefas TarefaSeparacao[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, status, criadoEm])
+}
+
+model OndaPedido {
+  id       String @id @default(uuid()) @db.Uuid
+  ondaId   String @db.Uuid
+  pedidoId String @db.Uuid
+
+  onda OndaSeparacao @relation(fields: [ondaId], references: [id], onDelete: Cascade)
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+
+  @@unique([ondaId, pedidoId])
+}
+
+model TarefaSeparacao {
+  id           String @id @default(uuid()) @db.Uuid
+  ondaId       String? @db.Uuid
+  itemPedidoId String @db.Uuid
+  enderecoId   String @db.Uuid
+  loteId       String? @db.Uuid
+  quantidade   Decimal @db.Decimal(18, 4)
+  quantidadeSeparada Decimal @default(0) @db.Decimal(18, 4)
+  status       StatusOperacao @default(PENDENTE)
+  operadorId   String? @db.Uuid
+  iniciadoEm   DateTime? @db.Timestamptz(3)
+  concluidoEm  DateTime? @db.Timestamptz(3)
+
+  onda OndaSeparacao? @relation(fields: [ondaId], references: [id])
+  itemPedido ItemPedido @relation(fields: [itemPedidoId], references: [id])
+  endereco Endereco @relation(fields: [enderecoId], references: [id])
+
+  @@index([status, operadorId])
+  @@index([ondaId, status])
+  @@index([itemPedidoId])
+}
+model Packing {
+  id          String @id @default(uuid()) @db.Uuid
+  pedidoId    String @db.Uuid
+  codigo      String @unique @db.VarChar(40)
+  status      StatusOperacao @default(EM_ANDAMENTO)
+  conferenteId String? @db.Uuid
+  iniciadoEm  DateTime @default(now()) @db.Timestamptz(3)
+  concluidoEm DateTime? @db.Timestamptz(3)
+  volumes     Volume[]
+}
+
+model Volume {
+  id          String @id @default(uuid()) @db.Uuid
+  packingId   String @db.Uuid
+  codigo      String @unique @db.VarChar(60)
+  rastreio    String? @db.VarChar(100)
+  pesoKg      Decimal? @db.Decimal(18, 4)
+  comprimentoCm Decimal? @db.Decimal(18, 2)
+  larguraCm   Decimal? @db.Decimal(18, 2)
+  alturaCm    Decimal? @db.Decimal(18, 2)
+
+  packing Packing @relation(fields: [packingId], references: [id], onDelete: Cascade)
+  itens ItemVolume[]
+
+  @@index([packingId])
+}
+
+model ItemVolume {
+  id          String @id @default(uuid()) @db.Uuid
+  volumeId    String @db.Uuid
+  itemPedidoId String @db.Uuid
+  quantidade  Decimal @db.Decimal(18, 4)
+
+  volume Volume @relation(fields: [volumeId], references: [id], onDelete: Cascade)
+
+  @@index([itemPedidoId])
+}
+
+model Expedicao {
+  id           String @id @default(uuid()) @db.Uuid
+  depositoId   String @db.Uuid
+  pedidoId     String @db.Uuid
+  codigo       String @db.VarChar(50)
+  status       StatusOperacao @default(RASCUNHO)
+  transportadora String?
+  codigoRastreio String?
+  numeroNotaFiscal String?
+  expedidoEm   DateTime? @db.Timestamptz(3)
+  expedidoPorId String? @db.Uuid
+  comprovanteStorageKey String?
+  criadoEm     DateTime @default(now()) @db.Timestamptz(3)
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+  itens ItemExpedicao[]
+  itensRomaneio ItemRomaneio[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, status, expedidoEm])
+  @@index([pedidoId])
+}
+
+model ItemExpedicao {
+  id          String @id @default(uuid()) @db.Uuid
+  expedicaoId String @db.Uuid
+  itemPedidoId String @db.Uuid
+  produtoId   String @db.Uuid
+  loteId      String? @db.Uuid
+  quantidade  Decimal @db.Decimal(18, 4)
+
+  expedicao Expedicao @relation(fields: [expedicaoId], references: [id], onDelete: Cascade)
+
+  @@index([expedicaoId, produtoId])
+  @@index([itemPedidoId])
+}
+
+model Romaneio {
+  id           String @id @default(uuid()) @db.Uuid
+  depositoId   String @db.Uuid
+  codigo       String @db.VarChar(50)
+  transportadora String?
+  motorista    String?
+  documentoMotorista String?
+  placaVeiculo String? @db.VarChar(10)
+  status       StatusOperacao @default(RASCUNHO)
+  previstoEm   DateTime? @db.Timestamptz(3)
+  fechadoEm    DateTime? @db.Timestamptz(3)
+  expedidoEm   DateTime? @db.Timestamptz(3)
+  itens        ItemRomaneio[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, status, previstoEm])
+}
+
+model ItemRomaneio {
+  id          String @id @default(uuid()) @db.Uuid
+  romaneioId  String @db.Uuid
+  expedicaoId String @db.Uuid
+
+  romaneio Romaneio @relation(fields: [romaneioId], references: [id], onDelete: Cascade)
+  expedicao Expedicao @relation(fields: [expedicaoId], references: [id])
+
+  @@unique([romaneioId, expedicaoId])
+}
+
+model Inventario {
+  id          String @id @default(uuid()) @db.Uuid
+  depositoId  String @db.Uuid
+  codigo      String @db.VarChar(40)
+  status      StatusInventario @default(RASCUNHO)
+  contagemCega Boolean @default(true)
+  escopo      Json?
+  abertoEm    DateTime? @db.Timestamptz(3)
+  fechadoEm   DateTime? @db.Timestamptz(3)
+  criadoPorId String @db.Uuid
+  aprovadoPorId String? @db.Uuid
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  itens ItemInventario[]
+
+  @@unique([depositoId, codigo])
+  @@index([depositoId, status, criadoEm])
+}
+
+model ItemInventario {
+  id             String @id @default(uuid()) @db.Uuid
+  inventarioId   String @db.Uuid
+  enderecoId     String @db.Uuid
+  produtoId      String @db.Uuid
+  loteId         String? @db.Uuid
+  quantidadeSistema Decimal @db.Decimal(18, 4)
+  quantidadeContada Decimal? @db.Decimal(18, 4)
+  diferenca      Decimal? @db.Decimal(18, 4)
+  numeroContagem Int @default(1)
+  contadoPorId   String? @db.Uuid
+  contadoEm      DateTime? @db.Timestamptz(3)
+  observacao     String?
+
+  inventario Inventario @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
+
+  @@index([inventarioId, enderecoId, produtoId])
+}
+model ImportacaoMassa {
+  id          String @id @default(uuid()) @db.Uuid
+  empresaId   String @db.Uuid
+  tipo        String @db.VarChar(50)
+  status      StatusOperacao @default(PENDENTE)
+  nomeArquivo String?
+  storageKey  String?
+  totalLinhas Int @default(0)
+  linhasSucesso Int @default(0)
+  linhasErro  Int @default(0)
+  detalhesErros Json?
+  solicitadoPorId String? @db.Uuid
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+  concluidoEm DateTime? @db.Timestamptz(3)
+
+  @@index([empresaId, status, criadoEm])
+}
+
+model Auditoria {
+  id          String @id @default(uuid()) @db.Uuid
+  empresaId   String? @db.Uuid
+  usuarioId   String? @db.Uuid
+  entidade    String @db.VarChar(80)
+  entidadeId  String? @db.Uuid
+  acao        String @db.VarChar(100)
+  dadosAntes  Json?
+  dadosDepois Json?
+  enderecoIp  String? @db.VarChar(45)
+  userAgent   String?
+  criadoEm    DateTime @default(now()) @db.Timestamptz(3)
+
+  usuario Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@index([empresaId, criadoEm])
+  @@index([entidade, entidadeId, criadoEm])
+  @@index([usuarioId, criadoEm])
+}
